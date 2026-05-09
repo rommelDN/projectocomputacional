@@ -1,0 +1,291 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { rsaEncrypt, rsaDecrypt, formatCipherPreview, modpow } from '../../utils/rsa';
+import './Chat.scss';
+ 
+const DEFAULT_KEYS = { p: 61, q: 53, n: 3233, phi: 3120, e: 17, d: 2753 };
+ 
+function now() {
+  const d = new Date();
+  return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+}
+ 
+let _stepId = 3;
+let _msgId  = 2;
+const nextStep = () => ++_stepId;
+const nextMsg  = () => ++_msgId;
+ 
+const SEED_MESSAGES = [
+  {
+    id: 1,
+    sender: 'A',
+    text: 'Hola, canal seguro activo',
+    cipher: [2081, 2762, 3000, 2081],
+    time: '10:42',
+    full: [2081, 2762, 3000, 2081, 2248],
+  },
+];
+ 
+const SEED_STEPS = [
+  {
+    id: 0,
+    type: 'keygen',
+    title: 'Generación de claves',
+    open: false,
+    data: {
+      rows: [
+        { key: 'Primos p, q',    val: 'p = 61, q = 53',          cls: 'cyan'   },
+        { key: 'n = p × q',      val: 'n = 3233',                  cls: 'violet' },
+        { key: 'φ(n)',            val: '(61−1)(53−1) = 3120',       cls: ''       },
+        { key: 'e (público)',     val: 'e = 17',                    cls: 'violet' },
+        { key: 'd (privado)',     val: 'd = 2753',                  cls: 'red'    },
+      ],
+      formula: 'Pública: (17, 3233) · Privada: (2753, 3233)',
+    },
+  },
+  {
+    id: 1,
+    type: 'encrypt',
+    title: 'Encriptando "Hola, canal seguro activo"',
+    open: false,
+    data: {
+      rows: [
+        { key: 'Mensaje (M)',  val: '"Hola, canal seguro activo"', cls: ''       },
+        { key: 'Fórmula',      val: 'C = Mᵉ mod n',               cls: 'cyan'   },
+        { key: 'H → 72',       val: '72¹⁷ mod 3233 = 2081',       cls: 'violet' },
+        { key: 'o → 111',      val: '111¹⁷ mod 3233 = 2762',      cls: 'violet' },
+        { key: 'l → 108',      val: '108¹⁷ mod 3233 = 3000',      cls: 'violet' },
+        { key: 'Cifrado',      val: '[2081, 2762, 3000, 2081, …]', cls: 'cyan'   },
+      ],
+      formula: 'C = M¹⁷ mod 3233',
+    },
+  },
+  {
+    id: 2,
+    type: 'decrypt',
+    title: 'Desencriptando mensaje',
+    open: false,
+    data: {
+      rows: [
+        { key: 'Cifrado (C)',  val: '[2081, 2762, 3000, …]',       cls: 'cyan'  },
+        { key: 'Fórmula',      val: 'M = Cᵈ mod n',               cls: 'green' },
+        { key: '2081 → H',     val: '2081²⁷⁵³ mod 3233 = 72',     cls: 'green' },
+        { key: '2762 → o',     val: '2762²⁷⁵³ mod 3233 = 111',    cls: 'green' },
+        { key: 'Resultado',    val: '"Hola, canal seguro activo"', cls: 'green' },
+      ],
+      formula: 'M = C²⁷⁵³ mod 3233',
+    },
+  },
+];
+ 
+export default function Chat({ keys: externalKeys }) {
+  const K = externalKeys || DEFAULT_KEYS;
+  const [messages, setMessages] = useState(SEED_MESSAGES);
+  const [steps,    setSteps]    = useState(SEED_STEPS);
+  const [input,    setInput]    = useState('');
+  const msgEndRef  = useRef(null);
+  const stepEndRef = useRef(null);
+  const inputRef   = useRef(null);
+ 
+  useEffect(() => { msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => { stepEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [steps]);
+ 
+  function toggleStep(id) {
+    setSteps(prev => prev.map(s => s.id === id ? { ...s, open: !s.open } : s));
+  }
+ 
+  function handleSend() {
+    const text = input.trim();
+    if (!text) return;
+ 
+    const encArr = rsaEncrypt(text, K.e, K.n);
+    const ciphers = encArr.map(x => x.cipher);
+    const decrypted = ciphers.map(c => String.fromCharCode(modpow(c, K.d, K.n))).join('');
+    const preview = formatCipherPreview(ciphers);
+    const t = now();
+ 
+    // Message
+    setMessages(prev => [...prev, {
+      id: nextMsg(),
+      sender: 'A',
+      text,
+      cipher: ciphers.slice(0, 4),
+      full: ciphers,
+      time: t,
+    }]);
+ 
+    // Encrypt step rows
+    const encRows = [
+      { key: 'Mensaje (M)',  val: `"${text.slice(0, 30)}${text.length > 30 ? '…' : ''}"`, cls: '' },
+      { key: 'Fórmula',      val: `C = Mᵉ mod n`,            cls: 'cyan'   },
+      ...encArr.slice(0, 3).map(x => ({
+        key: `'${x.char}' → ${x.code}`,
+        val: `${x.code}^${K.e} mod ${K.n} = ${x.cipher}`,
+        cls: 'violet',
+      })),
+      { key: 'Cifrado',      val: preview,                    cls: 'cyan'   },
+    ];
+ 
+    // Decrypt step rows
+    const decArr = ciphers.slice(0, 3);
+    const decRows = [
+      { key: 'Cifrado (C)',  val: preview,                    cls: 'cyan'  },
+      { key: 'Fórmula',      val: `M = Cᵈ mod n`,            cls: 'green' },
+      ...decArr.map(c => {
+        const orig = modpow(c, K.d, K.n);
+        return { key: `${c} → ${String.fromCharCode(orig)}`, val: `${c}^${K.d} mod ${K.n} = ${orig}`, cls: 'green' };
+      }),
+      { key: 'Resultado',    val: `"${decrypted}"`,           cls: 'green' },
+    ];
+ 
+    const encId = nextStep();
+    const decId = nextStep();
+ 
+    setSteps(prev => [
+      ...prev,
+      {
+        id: encId,
+        type: 'encrypt',
+        title: `Encriptando "${text.slice(0, 20)}${text.length > 20 ? '…' : ''}"`,
+        open: true,
+        data: { rows: encRows, formula: `C = M^${K.e} mod ${K.n}` },
+      },
+      {
+        id: decId,
+        type: 'decrypt',
+        title: 'Desencriptando mensaje',
+        open: true,
+        data: { rows: decRows, formula: `M = C^${K.d} mod ${K.n}` },
+      },
+    ]);
+ 
+    setInput('');
+  }
+ 
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  }
+ 
+  const typeBadge = { keygen: 'KEYGEN', encrypt: 'ENCRYPT', decrypt: 'DECRYPT' };
+  const typeClass = { keygen: 'keygen', encrypt: 'enc', decrypt: 'dec' };
+ 
+  return (
+    <div className="chat-page">
+ 
+      {/* ── Left: Chat ── */}
+      <div className="chat-page__chat">
+        <div className="chat-page__panel-header">
+          <div className="chat-page__panel-title">Canal seguro</div>
+          <div className="chat-page__personas">
+            <div className="chat-page__persona chat-page__persona--a">
+              <span className="chat-page__avatar chat-page__avatar--a">A</span>
+              <div>
+                <div className="chat-page__persona-name">Persona A</div>
+                <div className="chat-page__persona-key">e={K.e}, n={K.n}</div>
+              </div>
+            </div>
+            <span className="chat-page__arrow">⇄</span>
+            <div className="chat-page__persona chat-page__persona--b">
+              <div style={{ textAlign: 'right' }}>
+                <div className="chat-page__persona-name">Persona B</div>
+                <div className="chat-page__persona-key">d={K.d}, n={K.n}</div>
+              </div>
+              <span className="chat-page__avatar chat-page__avatar--b">B</span>
+            </div>
+          </div>
+        </div>
+ 
+        <div className="chat-page__messages">
+          {messages.map((msg) => (
+            <div key={msg.id} className="chat-page__msg-row chat-page__msg-row--right">
+              <div className="chat-page__msg-content">
+                <div className="chat-page__msg-label">Persona A · enviado</div>
+                <div className="chat-page__bubble chat-page__bubble--right">{msg.text}</div>
+                <div className="chat-page__cipher">
+                  C = [{msg.cipher.join(', ')}{msg.full?.length > 4 ? ', …' : ''}]
+                </div>
+                <div className="chat-page__time">{msg.time}</div>
+              </div>
+              <span className="chat-page__avatar chat-page__avatar--a">A</span>
+            </div>
+          ))}
+ 
+          {messages.map((msg) => (
+            <div key={`r-${msg.id}`} className="chat-page__msg-row">
+              <span className="chat-page__avatar chat-page__avatar--b">B</span>
+              <div className="chat-page__msg-content">
+                <div className="chat-page__msg-label">Persona B · recibido</div>
+                <div className="chat-page__bubble chat-page__bubble--left">{msg.text}</div>
+                <div className="chat-page__cipher chat-page__cipher--dec">
+                  D = [{msg.cipher.map(c => modpow(c, K.d, K.n)).join(', ')}{msg.full?.length > 4 ? ', …' : ''}]
+                </div>
+                <div className="chat-page__time">{msg.time}</div>
+              </div>
+            </div>
+          )).reverse().slice(0, messages.length)}
+ 
+          <div ref={msgEndRef} />
+        </div>
+ 
+        <div className="chat-page__input-area">
+          <span className="chat-page__avatar chat-page__avatar--a">A</span>
+          <textarea
+            ref={inputRef}
+            className="chat-page__input"
+            rows={1}
+            placeholder="Escribe un mensaje para encriptar…"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKey}
+          />
+          <button className="chat-page__send-btn" onClick={handleSend}>➤</button>
+        </div>
+      </div>
+ 
+      <div className="chat-page__divider" />
+ 
+      {/* ── Right: RSA History ── */}
+      <div className="chat-page__history">
+        <div className="chat-page__panel-header">
+          <div className="chat-page__panel-title">Historial RSA</div>
+          <div className="chat-page__history-count">{steps.length} operaciones</div>
+        </div>
+ 
+        <div className="chat-page__steps">
+          {steps.map((step) => (
+            <div
+              key={step.id}
+              className={`chat-page__step chat-page__step--${typeClass[step.type]} ${step.open ? 'chat-page__step--open' : ''}`}
+            >
+              <div
+                className="chat-page__step-header"
+                onClick={() => toggleStep(step.id)}
+              >
+                <span className="chat-page__step-num">#{step.id}</span>
+                <span className="chat-page__step-title">{step.title}</span>
+                <span className={`chat-page__step-badge chat-page__step-badge--${typeClass[step.type]}`}>
+                  {typeBadge[step.type]}
+                </span>
+                <span className="chat-page__step-chevron">{step.open ? '▲' : '▼'}</span>
+              </div>
+ 
+              {step.open && (
+                <div className="chat-page__step-body">
+                  {step.data.rows.map((row, i) => (
+                    <div key={i} className="chat-page__step-row">
+                      <span className="chat-page__step-key">{row.key}</span>
+                      <span className={`chat-page__step-val ${row.cls ? `chat-page__step-val--${row.cls}` : ''}`}>
+                        {row.val}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="chat-page__step-formula">{step.data.formula}</div>
+                </div>
+              )}
+            </div>
+          ))}
+          <div ref={stepEndRef} />
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,18 @@
+.app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-0);
+ 
+  &__main {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-0);
+    position: relative;
+ 
+    > * { flex: 1; overflow: hidden; }
+  }
+}
+ 
