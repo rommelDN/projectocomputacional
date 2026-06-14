@@ -102,10 +102,21 @@ export default function Chat({ keys }) {
   if (!session) {
     return <RoomJoin onJoin={setSession} />;
   }
+  
+  const myId = session?.userName;
 
   // Build all steps from messages
-  const allSteps = messages.flatMap((msg, i) => buildSteps(msg, i));
-  const myId = session?.userName;
+const allSteps = messages.flatMap((msg) => {
+  const isMe = msg.sender === myId;
+
+  if (isMe) {
+    // Yo envié este mensaje → solo muestro mi encriptación
+    return [buildSteps(msg, 0)[0]]; // índice 0 = paso ENCRYPT
+  } else {
+    // Otro lo envió → solo muestro mi desencriptación
+    return [buildSteps(msg, 0)[1]]; // índice 1 = paso DECRYPT
+  }
+});
 
   return (
     <div className="chat-page">

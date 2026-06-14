@@ -41,23 +41,37 @@ export function isPrime(n) {
   return true;
 }
  
-export function generateKeys(p, q) {
-  p = Number(p); q = Number(q);
-  const n   = p * q;
-  const phi = (p - 1) * (q - 1);
- 
-  // Find valid e
-  let e = 2;
-  while (e < phi) {
-    if (gcd(e, phi) === 1) break;
-    e++;
+// Generar primos pequeños candidatos para e
+function getRandomPrime(min, max) {
+  let candidates = [];
+  
+  for (let i = min; i <= max; i++) {
+    if (isPrime(i)) candidates.push(i);
   }
- 
+
+  // Mezclar y buscar uno coprimo con phi
+  // (se filtra después al generar claves)
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+export function generateKeys(p, q) {
+  p = Number(p);
+  q = Number(q);
+
+  const n = p * q;
+  const phi = (p - 1) * (q - 1);
+
+  // e primo aleatorio y coprimo con phi
+  let e;
+  do {
+    e = getRandomPrime(2, phi - 1);
+  } while (gcd(e, phi) !== 1);
+
   const d = modInverse(e, phi);
- 
+
   return { p, q, n, phi, e, d };
 }
- 
+
 export function rsaEncrypt(text, e, n) {
   return text.split('').map(ch => ({
     char:  ch,
